@@ -92,3 +92,49 @@ for f in *.dataSummary_comp;do echo $f; cat $f;done > dataSummary_comp.Summary
 ## prepare the files for subsequent analysis
 for dir in ${trimmed_data}/*; do if [ -d "${dir}" ]; then echo $dir; cd $dir; qsub -v output=$(basename "$dir").s_pe.fq ${script_path}/interleave.sh; fi; done;
 
+## filter abundance
+mkdir $squid/abundFilter
+cd $squid/abundFilter
+input_files=()
+for f in ${trimmed_data}/*/*.s_[ps]e.fq; do input_files+=($f); done
+qsub -v graph=$"countgraph_k20.kt",input_files="${input_files[*]}" ${script_path}/load-into-counting.sh
+qsub -v input=$"countgraph_k20.kt",files="${input_files[*]}" ${script_path}/filter_abund.sh
+for f in filter_abund.e*;do grep -B2 '^output in' "$f";done > filter_abund.summary
+## break out the orphaned and still-paired reads and rename files (this step ends with .s_pe.fq and .s_se.fq for each sample)
+#for i in *.s_pe.*.abundfilt; do extract-paired-reads.py $i; done
+for i in *.s_pe.*.abundfilt; do qsub -v input=$i $script_path/extract-paired-reads.sh; done
+##  combine the orphaned reads into a single file & rename pe files
+for i in *.s_se.fq.abundfilt; do
+   pe_orphans=$(basename $i .s_se.fq.abundfilt).s_pe.fq.abundfilt.se
+   cat $i $pe_orphans > $(basename $i .abundfilt)
+done
+#rm *.abundfilt.se
+for i in *.abundfilt.pe; do mv $i $(basename $i .abundfilt.pe); done
+## split interleaved files & ## merge the single reads to the end of left reads (this step reform the data into .s_pe1_se.fq & .s_pe2.fq for each sample )
+for i in *.s_pe.fq; do qsub -v input=$i $script_path/split-paired-reads.sh; done
+for f in *.s_pe.fq; do
+  base=$(basename $f);
+  file_end=$(tail -n 8 $f | head -n 4);
+  file_endA=$(tail -n 4 $base.1);
+  if [ "$file_end" != "$file_endA" ];then echo $f.1;fi
+  file_end=$(tail -n 4 $f);
+  file_endB=$(tail -n 4 $base.2);
+  if [ "$file_end" != "$file_endB" ];then echo $f.2;fi
+done
+
+for f in *.s_pe.fq.1; do echo $f; base=$(basename $f .s_pe.fq.1); cat $f $base.s_se.fq > $base.s_pe1_se.fq; done
+#rm *.s_pe.fq.1
+for f in *.s_pe.fq.2; do mv $f $(basename $f .s_pe.fq.2).s_pe2.fq; done
+
+## calculation of filtered read counts
+for f in *.s_pe1_se.fq ; do wc -l $f;done > filtered_readCounts
+cat filtered_readCounts | awk '{ sum+=$1} END {print sum,sum/4}' ## 454,506,826
+
+## Trinity
+lf_files=()
+for f in *.s_pe1_se.fq; do lf_files+=($f); done;
+rt_files=()
+for f in *.s_pe2.fq; do rt_files+=($f); done;
+qsub -v lf="${lf_files[*]}",rt="${rt_files[*]}" ${script_path}/run_Trinity.sh
+echo $(grep "^>" Trinity.fasta | wc -l) ## 881402
+
