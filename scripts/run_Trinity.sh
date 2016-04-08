@@ -4,9 +4,9 @@
 #PBS -m abe			#send email to myself
 #PBS -N trinity		#give name to the job
 
-module load trinity/6.0.2
-module load Java/1.7.0_51
-module load SAMTools/0.1.19
+module load trinity/2.2.0
+#module load Java/1.8.0_31 ## load automatically
+#module load SAMTools/0.1.19 ## load automatically
 
 
 cd $PBS_O_WORKDIR
